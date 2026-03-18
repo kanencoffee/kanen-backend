@@ -1,0 +1,15 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+healthcheckPath = "/v1/status"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[[deploy.services]]
+name = "api"
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+
+[[deploy.services]]
+name = "sync-worker"
+startCommand = "./scripts/run_sync.py --quickbooks --gmail --changed-since 2025-12-01T00:00:00-08:00"

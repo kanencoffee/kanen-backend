@@ -1,0 +1,39 @@
+[project]
+name = "kanen-coffee-backend"
+version = "0.1.0"
+description = "FastAPI service for Kanen Coffee Repair Intelligence & Inventory Planning"
+authors = [{name = "Kanen Coffee", email = "service@kanencoffee.com"}]
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlmodel",
+    "alembic",
+    "pydantic-settings",
+    "httpx",
+    "python-multipart",
+    "google-auth-oauthlib",
+    "google-api-python-client",
+    "tenacity",
+    "structlog",
+    "psycopg[binary]",
+    "python-dateutil"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "mypy",
+    "httpx[cli]"
+]
+
+[tool.ruff]
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+plugins = ["pydantic.mypy"]
+strict_optional = true
+warn_unused_configs = true
