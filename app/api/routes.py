@@ -281,14 +281,14 @@ def sync_runs(limit: int = 10) -> dict:
     return {"items": payload}
 
 
-@router.get("/v1/analytics/technicians")
+@router.get("/analytics/technicians")
 async def technician_performance(months: int = 12):
     """Technician performance metrics from Pipedrive + QuickBooks cross-reference."""
     from app.services.analytics import get_technician_performance
     return get_technician_performance(months_back=months)
 
 
-@router.get("/v1/analytics/revenue-breakdown")
+@router.get("/analytics/revenue-breakdown")
 async def revenue_breakdown(months: int = 12):
     """Revenue breakdown by category: Labor, Parts, Equipment, Non-Revenue."""
     from app.services.analytics import get_revenue_breakdown
