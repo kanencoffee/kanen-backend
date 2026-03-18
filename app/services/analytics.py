@@ -11,6 +11,7 @@ Line item classification:
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -18,6 +19,20 @@ from typing import Any, Dict, List, Optional
 from sqlmodel import Session, text
 
 from app.db.session import engine
+
+# ── Simple TTL cache for slow analytics queries ──────────────────────────────
+_cache: Dict[str, Any] = {}
+_cache_ts: Dict[str, float] = {}
+_CACHE_TTL = 300  # 5 minutes
+
+def _cached(key: str, fn, *args, **kwargs):
+    now = time.time()
+    if key in _cache and (now - _cache_ts.get(key, 0)) < _CACHE_TTL:
+        return _cache[key]
+    result = fn(*args, **kwargs)
+    _cache[key] = result
+    _cache_ts[key] = now
+    return result
 
 
 # ── Classification patterns ──────────────────────────────────────────

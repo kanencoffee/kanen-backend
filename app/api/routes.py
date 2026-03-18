@@ -100,7 +100,8 @@ def repair_velocity(period: str = "week", months: int = 3) -> dict:
 def brand_profiles(months: int = 6) -> dict:
     """Which machine brands generate the most repairs and which parts they consume."""
     from app.services.analytics import get_brand_failure_profile
-    return get_brand_failure_profile(months_back=months)
+    from app.services.analytics import _cached
+    return _cached('brand_profiles', get_brand_failure_profile, months_back=months)
 
 
 @router.get("/analytics/parts-profit", tags=["analytics"])
@@ -118,7 +119,8 @@ def parts_profit(months: int = 6, top_n: int = 20) -> dict:
 def repeat_customers(min_repairs: int = 3) -> dict:
     """Repeat customers sorted by repair count."""
     from app.services.analytics import get_top_customers
-    customers = get_top_customers(min_repairs=min_repairs)
+    from app.services.analytics import _cached
+    customers = _cached('top_customers', get_top_customers, min_repairs=min_repairs)
     return {
         "items": [
             {"name": c.name, "repairs": c.repair_count, "first": c.first_repair,
@@ -131,7 +133,8 @@ def repeat_customers(min_repairs: int = 3) -> dict:
 @router.get("/repairs/recent", tags=["repairs"])
 def recent_repairs(limit: int = 10) -> dict:
     from app.services.analytics import get_recent_repairs
-    return {"items": get_recent_repairs(limit=limit)}
+    from app.services.analytics import _cached
+    return {"items": _cached('recent_repairs', get_recent_repairs, limit=limit)}
 
 
 @router.get("/inventory/low-stock", tags=["inventory"] )
@@ -176,7 +179,8 @@ def vendor_scorecard(limit: int = 5) -> dict:
 @router.get("/analytics/failure-modes", tags=["analytics"])
 def failure_modes(limit: int = 15) -> dict:
     from app.services.analytics import get_failure_modes
-    items = get_failure_modes(limit=limit)
+    from app.services.analytics import _cached
+    items = _cached('failure_modes', get_failure_modes, limit=limit)
     if not items:
         return {"items": [{"failure_mode": "Breville", "count": 0}]}
     return {"items": items}
@@ -261,7 +265,8 @@ def sync_runs(limit: int = 10) -> dict:
 async def technician_performance(months: int = 12):
     """Technician performance metrics from Pipedrive + QuickBooks cross-reference."""
     from app.services.analytics import get_technician_performance
-    return get_technician_performance(months_back=months)
+    from app.services.analytics import _cached
+    return _cached('technician_perf', get_technician_performance, months_back=months)
 
 
 @router.get("/analytics/revenue-breakdown")
