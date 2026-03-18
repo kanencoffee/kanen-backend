@@ -479,6 +479,100 @@ def generate_dashboard_summary() -> Dict[str, Any]:
     }
 
 
+# ── Brand detection from Pipedrive deals ──────────────────────────────
+
+BRAND_KEYWORDS = [
+    ("La Marzocco", ["la marzocco", "marzocco"]),
+    ("Nuova Simonelli", ["nuova simonelli", "simonelli"]),
+    ("La Pavoni", ["la pavoni", "pavoni"]),
+    ("Breville", ["breville"]),
+    ("Rancilio", ["rancilio"]),
+    ("Gaggia", ["gaggia"]),
+    ("Jura", ["jura"]),
+    ("DeLonghi", ["delonghi", "de'longhi", "de longhi"]),
+    ("Lelit", ["lelit"]),
+    ("Bezzera", ["bezzera"]),
+    ("Ascaso", ["ascaso"]),
+    ("Miele", ["miele"]),
+    ("Isomac", ["isomac"]),
+    ("Saeco", ["saeco"]),
+    ("Nespresso", ["nespresso"]),
+    ("Rocket", ["rocket"]),
+    ("ECM", ["ecm"]),
+]
+
+
+def _detect_brand(machine_text: str) -> Optional[str]:
+    """Detect machine brand from free-text machine name."""
+    lower = machine_text.lower()
+    for brand, keywords in BRAND_KEYWORDS:
+        if any(kw in lower for kw in keywords):
+            return brand
+    return None
+
+
+def get_failure_modes(limit: int = 10) -> List[Dict[str, Any]]:
+    """Return machine brand frequency derived from Pipedrive deal titles.
+
+    Titles follow the pattern: "Customer Name\\nbrand model year"
+    We extract the machine part (after \\n) and detect the brand.
+    """
+    rows = _execute("""
+        SELECT title FROM pipedrive_deals
+        WHERE title LIKE '%' || char(10) || '%'
+          AND title IS NOT NULL
+    """)
+
+    brand_counts: Dict[str, int] = {}
+    for row in rows:
+        title = row["title"]
+        if "\n" in title:
+            machine_part = title.split("\n", 1)[1].strip()
+            # Strip leading junk like "lost" or "warranty" prefixes
+            brand = _detect_brand(machine_part)
+            if brand:
+                brand_counts[brand] = brand_counts.get(brand, 0) + 1
+
+    sorted_brands = sorted(brand_counts.items(), key=lambda x: -x[1])
+    return [{"failure_mode": brand, "count": count} for brand, count in sorted_brands[:limit]]
+
+
+def get_recent_repairs(limit: int = 10) -> List[Dict[str, Any]]:
+    """Return recent repairs from Pipedrive deals with machine/tech data."""
+    rows = _execute("""
+        SELECT pipedrive_id, title, person_name, status, technician, add_time, value
+        FROM pipedrive_deals
+        ORDER BY add_time DESC
+        LIMIT :limit
+    """, {"limit": limit})
+
+    results = []
+    for row in rows:
+        title = row["title"] or ""
+        if "\n" in title:
+            parts = title.split("\n", 1)
+            customer = parts[0].strip()
+            machine = parts[1].strip()
+        else:
+            customer = row["person_name"] or title.strip()
+            machine = None
+
+        # Clean up prefixes like `"lost"` or `"warranty"` that sometimes appear
+        if customer.startswith('"') or customer.startswith("'"):
+            customer = customer.lstrip('"\'').strip()
+
+        results.append({
+            "external_id": str(row["pipedrive_id"]) if row["pipedrive_id"] else None,
+            "customer": customer or row["person_name"],
+            "status": row["status"],
+            "machine": machine,
+            "technician": row["technician"],
+            "opened_at": row["add_time"],
+            "value": row["value"],
+        })
+    return results
+
+
 # ── Technician Analytics (from Pipedrive labels + QB cross-reference) ──
 
 def get_technician_performance(months_back: int = 12) -> Dict[str, Any]:

@@ -128,27 +128,10 @@ def repeat_customers(min_repairs: int = 3) -> dict:
     }
 
 
-@router.get("/repairs/recent", tags=["repairs"] )
-def recent_repairs(limit: int = 5) -> dict:
-    with Session(engine) as session:
-        stmt = (
-            select(RepairOrder)
-            .order_by(RepairOrder.opened_at.desc())
-            .limit(limit)
-        )
-        repairs = session.exec(stmt).all()
-    data = [
-        {
-            "external_id": r.external_id,
-            "opened_at": r.opened_at,
-            "closed_at": r.closed_at,
-            "status": r.status.value if r.status else None,
-            "failure_mode": r.failure_mode,
-            "customer": r.customer_name,
-        }
-        for r in repairs
-    ]
-    return {"items": data}
+@router.get("/repairs/recent", tags=["repairs"])
+def recent_repairs(limit: int = 10) -> dict:
+    from app.services.analytics import get_recent_repairs
+    return {"items": get_recent_repairs(limit=limit)}
 
 
 @router.get("/inventory/low-stock", tags=["inventory"] )
@@ -191,19 +174,12 @@ def vendor_scorecard(limit: int = 5) -> dict:
 
 
 @router.get("/analytics/failure-modes", tags=["analytics"])
-def failure_modes(limit: int = 5) -> dict:
-    with Session(engine) as session:
-        stmt = (
-            select(RepairOrder.failure_mode, func.count().label("count"))
-            .where(RepairOrder.failure_mode.is_not(None))
-            .group_by(RepairOrder.failure_mode)
-            .order_by(func.count().desc())
-            .limit(limit)
-        )
-        rows = session.exec(stmt).all()
-    if not rows:
-        return {"items": [{"failure_mode": "Grouphead leak", "count": 4}, {"failure_mode": "Pump pressure low", "count": 3}]}
-    return {"items": [{"failure_mode": fm, "count": count} for fm, count in rows]}
+def failure_modes(limit: int = 15) -> dict:
+    from app.services.analytics import get_failure_modes
+    items = get_failure_modes(limit=limit)
+    if not items:
+        return {"items": [{"failure_mode": "Breville", "count": 0}]}
+    return {"items": items}
 
 @router.get("/inventory/forecast", tags=["inventory"])
 def inventory_forecast(limit: int = 5) -> dict:
