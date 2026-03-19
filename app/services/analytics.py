@@ -590,6 +590,124 @@ def get_recent_repairs(limit: int = 10) -> List[Dict[str, Any]]:
 
 # ── Technician Analytics (from Pipedrive labels + QB cross-reference) ──
 
+def get_repair_detail(repair_id: int) -> Optional[Dict[str, Any]]:
+    """Full detail for a single repair order including parts used."""
+    rows = _execute("""
+        SELECT ro.id, ro.external_id, ro.customer_name, ro.status, ro.failure_mode,
+               ro.opened_at, ro.closed_at, ro.notes,
+               mm.manufacturer as brand, mm.model_name as machine,
+               pd.technician, pd.value
+        FROM repair_orders ro
+        LEFT JOIN machine_models mm ON mm.id = ro.machine_model_id
+        LEFT JOIN pipedrive_deals pd ON LOWER(TRIM(ro.customer_name)) = LOWER(TRIM(pd.person_name))
+            AND julianday(ro.opened_at) >= julianday(pd.add_time)
+            AND julianday(ro.opened_at) - julianday(pd.add_time) < 30
+        WHERE ro.id = :repair_id
+        ORDER BY pd.value DESC
+        LIMIT 1
+    """, {"repair_id": repair_id})
+
+    if not rows:
+        return None
+
+    r = rows[0]
+
+    parts_rows = _execute("""
+        SELECT p.name, rpu.quantity, rpu.unit_sale_price,
+               (rpu.quantity * rpu.unit_sale_price) as line_total
+        FROM repair_part_usage rpu
+        JOIN parts p ON p.id = rpu.part_id
+        WHERE rpu.repair_id = :repair_id
+        ORDER BY line_total DESC
+    """, {"repair_id": repair_id})
+
+    return {
+        "id": r["id"],
+        "external_id": r["external_id"],
+        "customer": r["customer_name"],
+        "machine": r["machine"],
+        "brand": r["brand"],
+        "status": r["status"],
+        "technician": r["technician"],
+        "value": float(r["value"]) if r["value"] is not None else None,
+        "opened_at": r["opened_at"],
+        "closed_at": r["closed_at"],
+        "notes": r["notes"],
+        "failure_mode": r["failure_mode"],
+        "parts": [
+            {
+                "name": p["name"],
+                "quantity": p["quantity"],
+                "unit_price": p["unit_sale_price"],
+                "line_total": round(float(p["line_total"]), 2) if p["line_total"] is not None else None,
+            }
+            for p in parts_rows
+        ],
+    }
+
+
+def get_revenue_trend(months_back: int = 6) -> List[Dict[str, Any]]:
+    """Monthly revenue totals for the last N months."""
+    cutoff = (datetime.utcnow() - timedelta(days=months_back * 30)).strftime("%Y-%m-%d")
+
+    rows = _execute("""
+        SELECT strftime('%Y-%m', ro.opened_at) as month,
+               sum(rpu.quantity * rpu.unit_sale_price) as revenue
+        FROM repair_part_usage rpu
+        JOIN repair_orders ro ON ro.id = rpu.repair_id
+        WHERE rpu.unit_sale_price IS NOT NULL AND rpu.unit_sale_price > 0
+          AND ro.opened_at >= :cutoff
+        GROUP BY month
+        ORDER BY month
+    """, {"cutoff": cutoff})
+
+    return [{"month": r["month"], "revenue": round(float(r["revenue"]), 2)} for r in rows]
+
+
+def get_technician_monthly_volumes(months_back: int = 12) -> Dict[str, List[Dict[str, Any]]]:
+    """Monthly repair volume per technician for sparklines. Returns last N months even if zero."""
+    cutoff = (datetime.utcnow() - timedelta(days=months_back * 30)).strftime("%Y-%m-%d")
+
+    rows = _execute("""
+        SELECT technician,
+               strftime('%Y-%m', add_time) as month,
+               count(*) as cnt
+        FROM pipedrive_deals
+        WHERE technician IS NOT NULL AND add_time >= :cutoff
+        GROUP BY technician, month
+        ORDER BY technician, month
+    """, {"cutoff": cutoff})
+
+    # Build month list for last N months
+    today = datetime.utcnow()
+    months = []
+    for i in range(months_back - 1, -1, -1):
+        d = today - timedelta(days=i * 30)
+        months.append(d.strftime("%Y-%m"))
+    # Deduplicate while preserving order
+    seen = set()
+    month_list = []
+    for m in months:
+        if m not in seen:
+            seen.add(m)
+            month_list.append(m)
+
+    # Build lookup
+    volume_lookup: Dict[str, Dict[str, int]] = {}
+    for row in rows:
+        tech = row["technician"]
+        if tech not in volume_lookup:
+            volume_lookup[tech] = {}
+        volume_lookup[tech][row["month"]] = row["cnt"]
+
+    # Fill in zeros for missing months
+    result: Dict[str, List[Dict[str, Any]]] = {}
+    for tech, volumes in volume_lookup.items():
+        result[tech] = [{"month": m, "count": volumes.get(m, 0)} for m in month_list]
+
+    return result
+
+
 def get_technician_performance(months_back: int = 12) -> Dict[str, Any]:
     """Technician performance using Pipedrive labels cross-referenced with QB invoices."""
     cutoff = (datetime.utcnow() - timedelta(days=months_back * 30)).strftime("%Y-%m-%d")
@@ -651,6 +769,8 @@ def get_technician_performance(months_back: int = 12) -> Dict[str, Any]:
             brand_matrix[tech] = {}
         brand_matrix[tech][row["brand"]] = row["repairs"]
 
+    monthly_volumes = get_technician_monthly_volumes(months_back=months_back)
+
     return {
         "period_months": months_back,
         "technicians": [
@@ -661,6 +781,7 @@ def get_technician_performance(months_back: int = 12) -> Dict[str, Any]:
                 "avg_ticket": round(t["avg_ticket"], 2),
                 "avg_turnaround_days": round(t["avg_turnaround_days"], 1) if t["avg_turnaround_days"] else None,
                 "brand_specialization": brand_matrix.get(t["technician"], {}),
+                "monthly_volumes": monthly_volumes.get(t["technician"], []),
             }
             for t in techs
         ],

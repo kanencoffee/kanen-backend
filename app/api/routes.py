@@ -274,3 +274,21 @@ async def revenue_breakdown(months: int = 12):
     """Revenue breakdown by category: Labor, Parts, Equipment, Non-Revenue."""
     from app.services.analytics import get_revenue_breakdown
     return get_revenue_breakdown(months_back=months)
+
+
+@router.get("/analytics/revenue-trend", tags=["analytics"])
+async def revenue_trend(months: int = 6):
+    """Monthly revenue totals over time — powers line chart on dashboard."""
+    from app.services.analytics import get_revenue_trend
+    items = get_revenue_trend(months_back=months)
+    return {"items": items}
+
+
+@router.get("/repairs/{repair_id}", tags=["repairs"])
+async def repair_detail(repair_id: int):
+    """Full detail for a single repair order including parts list."""
+    from app.services.analytics import get_repair_detail
+    detail = get_repair_detail(repair_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Repair {repair_id} not found")
+    return detail
